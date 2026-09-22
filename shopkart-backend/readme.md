@@ -1,104 +1,419 @@
-Listed directory MERN%20TA
-Listed directory shopkart-backend
-Viewed index.js:1-38
-Viewed customer.controller.js:1-207
-Viewed customer.model.js:1-32
-Viewed auth.middleware.js:1-45
-Viewed generateToken.js:1-20
-Viewed customer.routes.js:1-28
-Viewed class4.md:1-100
+# 🛒 ShopKart Backend — Architecture, Concepts & Developer Reference Guide
 
-Here is your comprehensive **TA Preparation & Evaluation Guide** for **Engineering Lab 01 (ShopKart — Customer Authentication Service)**.
+> **Target Audience**: Junior Developers, Students & Teaching Assistants  
+> **Topic**: Production-Ready Authentication Microservice with Express, Mongoose, JWT, and MVC Architecture  
+> **Key Files**: 
+> * [index.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/index.js) (Server Entrypoint)
+> * [routes/customer.routes.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/routes/customer.routes.js) (API Route Definitions)
+> * [controllers/customer.controller.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/controllers/customer.controller.js) (Business Logic)
+> * [models/customer.model.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/models/customer.model.js) (Database Schema)
+> * [middlewares/auth.middleware.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/middlewares/auth.middleware.js) (JWT Verification)
+> * [utils/generateToken.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/utils/generateToken.js) (Token Signing Helper)
 
 ---
 
-## 1. Quick Concept Revision (What Was Built & Why)
+## 📑 Table of Contents
+1. [The Big Picture: From Monolith to MVC Architecture](#1-the-big-picture-from-monolith-to-mvc-architecture)
+2. [Database Connectivity with Mongoose & Environment Variables](#2-database-connectivity-with-mongoose--environment-variables)
+3. [Component-by-Component Deep Dive](#3-component-by-component-deep-dive)
+4. [Authentication & Security Concepts Explained](#4-authentication--security-concepts-explained)
+5. [Complete Request-Response Lifecycle Diagrams](#5-complete-request-response-lifecycle-diagrams)
+6. [Step-by-Step Recipes for Junior Developers](#6-step-by-step-recipes-for-junior-developers)
+7. [TA Evaluation Rubric & Viva Preparation](#7-ta-evaluation-rubric--viva-preparation)
 
-### A. MVC Architecture Flow
-In this project, the separation of concerns is strictly maintained:
-1. **[index.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/index.js)**: Configures server, connects to MongoDB, mounts middlewares (`express.json()`, `cookieParser()`), and delegates `/customers` to routes.
-2. **[customer.routes.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/routes/customer.routes.js)**: Declares endpoints and maps them to controllers, applying `authMiddleware` where authentication is required.
-3. **[customer.model.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/models/customer.model.js)**: Defines the MongoDB Mongoose schema (`fullName`, `email`, `password`, `phone`, `createdAt`).
-4. **[customer.controller.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/controllers/customer.controller.js)**: Handles the business logic (validation, bcrypt hashing/comparison, token generation, cookie dispatch, response formatting).
-5. **[auth.middleware.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/middlewares/auth.middleware.js)**: Intercepts protected requests, verifies the JWT from cookies, retrieves the user from MongoDB, attaches the customer object to `req.user`, and calls `next()`.
-6. **[generateToken.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/utils/generateToken.js)**: Helper utility to sign JWT with customer ID and email with an expiry (e.g., `1d`).
+---
+
+# 1. The Big Picture: From Monolith to MVC Architecture
+
+### 🛑 The "Earlier" Way: The Monolithic `index.js` Trap
+When first learning Express, developers often put everything in one file:
+
+```javascript
+// ❌ MONOLITHIC BAD PRACTICE (Everything in index.js)
+const express = require('express');
+const mongoose = require('mongoose');
+const bcrypt = require('bcrypt');
+const app = express();
+
+app.use(express.json());
+
+// Schema in index.js
+const Customer = mongoose.model('Customer', new mongoose.Schema({ ... }));
+
+// Route + Controller + DB query + validation in one inline callback:
+app.post('/customers/register', async (req, res) => {
+  const { fullName, email, password, phone } = req.body;
+  if (!email || !password) return res.status(400).send("Error");
+  const hashed = await bcrypt.hash(password, 10);
+  const user = await Customer.create({ fullName, email, password: hashed, phone });
+  res.status(201).json(user);
+});
+
+app.listen(5000);
+```
+
+### 💥 Why does this fail as apps grow?
+* **Spaghetti Code**: In an app with 15 models and 60 endpoints, `index.js` balloons to 3,000+ lines.
+* **Tight Coupling**: You cannot reuse business logic or test route paths independently.
+* **Merge Conflicts**: Multiple team members working on different features constantly edit the exact same file.
+
+---
+
+### 🏛️ The Solution: Model-View-Controller (MVC)
+MVC is an **architectural design pattern** that separates concerns into dedicated responsibilities:
 
 ```text
-Incoming Request ──> Route ──> [authMiddleware (if protected)] ──> Controller ──> Model (MongoDB)
-                                       │                                  │
-                                       ▼ (if invalid token: 401)          ▼
-                                                            Response (JSON + Cookie)
+                     MVC Architecture
+                            |
+        ┌───────────────────┼───────────────────┐
+        ↓                   ↓                   ↓
+     MODEL                VIEW             CONTROLLER
+  (Data & Schema)     (Client / UI)      (Business Logic)
+  customer.model.js   React / Postman   customer.controller.js
+```
+
+### 🍽️ The Restaurant Analogy (Mental Model)
+To understand how backend components talk to each other, think of a fine dining restaurant:
+
+| Restaurant Role | Backend Equivalent | What it does |
+| :--- | :--- | :--- |
+| **Customer** | **Client / Browser / Postman** | Sends an HTTP request wanting data or an action. |
+| **Menu Card** | **Routes (`customer.routes.js`)** | Lists available dishes (endpoints like `POST /login`, `GET /me`). |
+| **Waiter** | **Controller (`customer.controller.js`)** | Takes the order, validates request data, asks kitchen for food, formats response. |
+| **Kitchen / Chef** | **Model (`customer.model.js`)** | Interacts directly with raw ingredients (**MongoDB database**). |
+| **Security Guard** | **Middleware (`auth.middleware.js`)** | Checks if the customer has a valid VIP pass (**JWT Token**) before entering VIP lounge. |
+
+---
+
+# 2. Database Connectivity with Mongoose & Environment Variables
+
+📂 **Files**: [index.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/index.js), `.env`
+
+### 💡 The Concept
+Connecting to a database is an **asynchronous network operation**. It can fail if the database server is offline, credentials are wrong, or network connectivity drops.
+
+### 🔑 General Rule / Recipe:
+1. **Never hardcode secrets or connection strings**: Store credentials in a `.env` file (e.g., `MONGO_URI=mongodb+srv://...`).
+2. **Load `.env` immediately**: Call `require("dotenv").config();` at the very first line of your entry file.
+3. **Import Mongoose**: `const mongoose = require("mongoose");`.
+4. **Call `mongoose.connect()`**: Pass `process.env.MONGO_URI`.
+5. **Handle Asynchronous Promises**:
+   * Using `.then(...)` / `.catch(...)`, or
+   * Wrapping in an `async function startServer()` with `try { await mongoose.connect(...) } catch (err) { ... }`.
+6. **Only start listening for requests AFTER database connection succeeds**: If the database is down, the server should not start taking traffic!
+
+```javascript
+// index.js
+require("dotenv").config(); // 1. Load environment variables first
+
+const express = require("express");
+const mongoose = require("mongoose");
+
+const app = express();
+
+// 2. Connect to Database and start server only on success
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => {
+    console.log("Connected to MongoDB successfully");
+    app.listen(process.env.PORT, () => {
+      console.log(`Server running on port ${process.env.PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("MongoDB connection failed:", error.message);
+    process.exit(1); // Exit process if DB fails
+  });
 ```
 
 ---
 
-### B. Security & Auth Principles
-* **Hashing vs. Encryption (bcrypt)**:
-  * **Hashing is one-way**: You cannot reverse a hash back to the original password.
-  * **Bcrypt with Salt**: Adds random salt rounds (`10`) so two identical passwords produce completely different hashes, protecting against rainbow table attacks.
-* **JWT (JSON Web Token)**:
-  * Signed using a server-side secret (`JWT_SECRET`).
-  * Payload holds public identifiers (`id`, `email`). **Never store passwords or sensitive secrets in the payload.**
-* **HttpOnly Cookie**:
-  * Set via `res.cookie('token', token, { httpOnly: true, maxAge: ... })`.
-  * **Prevents XSS (Cross-Site Scripting)**: JavaScript running in the browser (`document.cookie`) cannot read or manipulate the token.
-* **Credential Enumeration Prevention**:
-  * On login failure (wrong email OR wrong password), return the exact same generic message: `"Invalid email or password"` with HTTP `401`.
+# 3. Component-by-Component Deep Dive
+
+Let us break down each directory in `shopkart-backend` and why it exists.
+
+```text
+shopkart-backend/
+├── index.js                     # 1. Entry point & server orchestration
+├── models/
+│   └── customer.model.js        # 2. Schema definition & MongoDB model
+├── routes/
+│   └── customer.routes.js       # 3. Endpoint URLs & middleware binding
+├── controllers/
+│   └── customer.controller.js   # 4. Request processing & business logic
+├── middlewares/
+│   └── auth.middleware.js       # 5. Route guarding & JWT validation
+└── utils/
+    └── generateToken.js         # 6. Shared helper functions
+```
 
 ---
 
-## 2. TA Step-by-Step Evaluation Plan
+### A. Entry Point: [index.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/index.js)
+* **Responsibility**: Server bootstrap, global middleware registration, mounting routes, database connection.
+* **Key Middlewares**:
+  * `app.use(express.json())`: Enables parsing of incoming `application/json` bodies into `req.body`.
+  * `app.use(cookieParser())`: Extracts cookies from incoming `Cookie` headers and populates `req.cookies`.
+  * `app.use("/customers", customerRoutes)`: Mounts all customer endpoints under the `/customers` namespace.
 
-When a student presents their work, evaluate them in **4 structured phases** (~5 to 7 minutes per student):
+---
+
+### B. Model: [customer.model.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/models/customer.model.js)
+* **Responsibility**: Defines the shape and constraints of customer documents in MongoDB.
+* **Core Rules**:
+  * `email`: Marked `unique: true` to prevent duplicate account registration at the database level.
+  * `password`: Always stores a bcrypt hash string, never plain text.
+  * `createdAt`: Automatically sets the timestamp via `default: Date.now`.
+
+```javascript
+const customerSchema = new mongoose.Schema({
+  fullName: { type: String, required: true },
+  email:    { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  phone:    { type: String, required: true },
+  createdAt:{ type: Date, default: Date.now },
+});
+
+const Customer = mongoose.model("Customer", customerSchema);
+module.exports = Customer;
+```
+
+---
+
+### C. Routes: [customer.routes.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/routes/customer.routes.js)
+* **Responsibility**: Maps HTTP verbs (`GET`, `POST`, `PATCH`) and paths to specific controller functions.
+* **Mini-Router Pattern**: Uses `express.Router()` so routes are self-contained modules.
+* **Middleware Chaining**: Notice how protected routes place `authMiddleware` before the controller:
+  * `router.get("/me", authMiddleware, getMyProfile)`
+  * Request hits `authMiddleware` first $\to$ if token is valid, it calls `next()` $\to$ `getMyProfile` executes!
+
+---
+
+### D. Controller: [customer.controller.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/controllers/customer.controller.js)
+* **Responsibility**: Implements the actual business rules for each endpoint.
+* **Functions**:
+  1. `registerCustomer(req, res)`:
+     * Validates all required fields exist.
+     * Ensures `password.length >= 6`.
+     * Checks if email already exists using `Customer.findOne({ email })`.
+     * Hashes password using `bcrypt.hash(password, 10)`.
+     * Saves record and returns `201 Created` without revealing the password.
+  2. `loginCustomer(req, res)`:
+     * Finds customer by email.
+     * Compares entered plain-text password with stored hash using `bcrypt.compare()`.
+     * Generates a signed JWT.
+     * Sets an `HttpOnly` cookie and returns `200 OK`.
+  3. `getMyProfile(req, res)`:
+     * Reads `req.user` (pre-populated by `authMiddleware`) and returns profile JSON.
+  4. `logoutCustomer(req, res)`:
+     * Clears cookie with `res.clearCookie("token")`.
+  5. `changePassword(req, res)`:
+     * Verifies `oldPassword` with `bcrypt.compare`.
+     * Validates `newPassword.length >= 6`.
+     * Hashes `newPassword` and saves updated document.
+
+---
+
+### E. Middleware: [auth.middleware.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/middlewares/auth.middleware.js)
+* **Responsibility**: Intercepts requests to protected routes, verifies identity, and populates `req.user`.
+
+```javascript
+async function authMiddleware(req, res, next) {
+  try {
+    // 1. Read token from cookie (parsed by cookie-parser)
+    const token = req.cookies.token;
+    if (!token) {
+      return res.status(401).json({ success: false, message: "Please login first" });
+    }
+
+    // 2. Cryptographically verify signature using server secret
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // 3. Retrieve user from DB, excluding password
+    const customer = await Customer.findById(decoded.id).select("-password");
+    if (!customer) {
+      return res.status(401).json({ success: false, message: "Customer not found" });
+    }
+
+    // 4. Attach user object to request
+    req.user = customer;
+
+    // 5. Pass control to the next handler/controller
+    next();
+  } catch (error) {
+    return res.status(401).json({ success: false, message: "Invalid or expired token" });
+  }
+}
+```
+
+---
+
+### F. Utility: [generateToken.js](file:///Users/mdkaif/Desktop/MERN%20TA/shopkart-backend/utils/generateToken.js)
+* **Responsibility**: Signs a new JWT token containing the user's `_id` and `email`.
+* Sets an expiration time (`1d`) to limit replay vulnerability if a token is ever compromised.
+
+---
+
+# 4. Authentication & Security Concepts Explained
+
+### 🔒 1. Hashing vs. Encryption
+* **Encryption is Two-Way**: Data encrypted with a key can be decrypted back into plain text using a key. If an attacker steals your database and encryption key, all passwords are leaked.
+* **Hashing is One-Way**: A cryptographic hash function converts text into a fixed-length string that cannot be reversed.
+* **Why Bcrypt with Salt?**
+  * If two users have the password `"password123"`, a standard hash function (like MD5) produces the exact same hash for both. Attackers use precomputed lookup tables (**Rainbow Tables**) to crack them.
+  * **Bcrypt Salt**: Bcrypt adds random characters (**salt**) to the password before hashing. Even identical passwords produce completely distinct hashes!
+
+---
+
+### 🎟️ 2. What is a JWT (JSON Web Token)?
+A JWT is a compact, URL-safe means of representing claims between two parties. It has 3 parts separated by dots: `Header.Payload.Signature`.
+
+```text
+┌──────────────┐     ┌──────────────┐     ┌────────────────────────┐
+│    HEADER    │  .  │   PAYLOAD    │  .  │       SIGNATURE        │
+│  Algorithm   │     │  id & email  │     │ HMACSHA256(Secret,...) │
+└──────────────┘     └──────────────┘     └────────────────────────┘
+```
+> [!IMPORTANT]
+> **Never store sensitive data in the JWT Payload!**  
+> The payload is only **Base64 encoded**, not encrypted. Anyone who inspects the token can read the payload. Store only non-sensitive identifiers like `id` and `email`.
+
+---
+
+### 🍪 3. HttpOnly Cookies vs. LocalStorage
+Where should the frontend store the JWT?
+
+| Storage Type | Vulnerable to XSS? | Vulnerable to CSRF? | How it works |
+| :--- | :---: | :---: | :--- |
+| **LocalStorage** | ❌ **High Risk** | ✅ No | Accessible via JavaScript (`localStorage.getItem('token')`). Any malicious script injected into the page can steal the token. |
+| **HttpOnly Cookie** | ✅ **Immune to XSS** | ⚠️ Needs SameSite | Set by server with `httpOnly: true`. Client-side JavaScript **cannot read** the cookie! |
+
+In ShopKart, we use **HttpOnly cookies**:
+```javascript
+res.cookie("token", token, {
+  httpOnly: true, // Browser JS cannot read this cookie!
+  maxAge: 24 * 60 * 60 * 1000 // 1 day
+});
+```
+
+---
+
+### 🛡️ 4. Credential Enumeration Prevention
+Notice in `loginCustomer`:
+```javascript
+if (!customer) {
+  return res.status(401).json({ message: "Invalid email or password" });
+}
+if (!isPasswordCorrect) {
+  return res.status(401).json({ message: "Invalid email or password" });
+}
+```
+**Why not say `"User not found"` for the first case?**  
+If an API returns `"User not found"`, an attacker knows that email does not exist. If it returns `"Wrong password"`, the attacker knows that email **does exist** and can target that account with brute-force dictionary attacks. Returning a uniform `"Invalid email or password"` prevents attackers from discovering valid user accounts.
+
+---
+
+### 🙈 5. Safe Data Exposure (`.select("-password")`)
+When fetching customer details, always ensure the hashed password is not included in memory or API responses:
+```javascript
+// In auth middleware:
+const customer = await Customer.findById(decoded.id).select("-password");
+
+// In register controller response:
+customer: {
+  _id: customer._id,
+  fullName: customer.fullName,
+  email: customer.email,
+  phone: customer.phone
+}
+```
+
+---
+
+# 5. Complete Request-Response Lifecycle Diagrams
+
+### Public Route Flow: Customer Registration / Login
 
 ```mermaid
-graph TD
-    A[Phase 1: Code Review] --> B[Phase 2: Postman Live Testing]
-    B --> C[Phase 3: Viva Questions]
-    C --> D[Phase 4: Bonus / Change Password]
+sequenceDiagram
+    autonumber
+    actor Client as Client (Browser/Postman)
+    participant Route as customer.routes.js
+    participant Ctrl as customer.controller.js
+    participant Model as customer.model.js (Mongoose)
+    participant DB as MongoDB Atlas
+
+    Client->>Route: POST /customers/register { fullName, email, password, phone }
+    Route->>Ctrl: registerCustomer(req, res)
+    Ctrl->>Ctrl: Validate body & password length
+    Ctrl->>Model: Customer.findOne({ email })
+    Model->>DB: Query customer by email
+    DB-->>Model: Return null (email is available)
+    Ctrl->>Ctrl: bcrypt.hash(password, 10)
+    Ctrl->>Model: Customer.create({ ...hashedPassword })
+    Model->>DB: Insert document
+    DB-->>Model: Success (_id generated)
+    Ctrl-->>Client: 201 Created (customer details WITHOUT password)
 ```
 
-### Phase 1: Fast Code Review (10 Marks)
-1. **Folder Structure Check**: Must follow MVC (`controllers/`, `models/`, `routes/`, `middlewares/`, `utils/`, `.env`).
-2. **Environment Variables**: Check that `PORT`, `MONGO_URI`, and `JWT_SECRET` are read from `.env` and not hardcoded.
-3. **Password Security**:
-   * Registration hashes password before saving: `await bcrypt.hash(password, 10)`.
-   * Model fetch excludes password: `.select("-password")` or manual omission before `res.json()`.
-4. **Cookie Security**: Ensure `httpOnly: true` is configured in `res.cookie(...)`.
+---
+
+### Protected Route Flow: Profile Access (`GET /customers/me`)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Client (Browser/Postman)
+    participant MW as auth.middleware.js
+    participant Model as customer.model.js
+    participant Ctrl as customer.controller.js
+
+    Client->>MW: GET /customers/me (Cookie: token=xyz)
+    Note over MW: 1. Extract token from req.cookies
+    alt No Token or Expired
+        MW-->>Client: 401 Unauthorized ("Please login first")
+    else Token Valid
+        MW->>MW: jwt.verify(token, JWT_SECRET)
+        MW->>Model: Customer.findById(decoded.id).select("-password")
+        Model-->>MW: Returns customer profile
+        MW->>MW: Attach req.user = customer
+        MW->>Ctrl: next() -> getMyProfile(req, res)
+        Ctrl-->>Client: 200 OK (req.user data)
+    end
+```
 
 ---
 
-### Phase 2: Postman API Testing Flow (70 Marks)
+# 6. Step-by-Step Recipes for Junior Developers
 
-Follow this exact testing order in Postman:
+### 🍳 Recipe 1: How to Add a New Database Model
+1. Create `models/product.model.js`.
+2. Import `mongoose`.
+3. Create a schema: `const productSchema = new mongoose.Schema({ ... })`.
+4. Compile the model: `const Product = mongoose.model("Product", productSchema)`.
+5. Export it: `module.exports = Product;`.
 
-| Step | Endpoint & Method | Test Case / Action | Expected Status | What to Verify |
-| :--- | :--- | :--- | :--- | :--- |
-| **1.1** | `POST /customers/register` | Send with missing field (e.g., missing `phone`) | `400 Bad Request` | Fails gracefully |
-| **1.2** | `POST /customers/register` | Send with password `< 6` characters (e.g. `"123"`) | `400 Bad Request` | Password validation triggers |
-| **1.3** | `POST /customers/register` | Send valid body: `{"fullName":"John Doe","email":"john@test.com","password":"password123","phone":"9876543210"}` | `201 Created` | **Password is NOT present in response JSON** |
-| **1.4** | `POST /customers/register` | Send identical request again (duplicate email) | `409 Conflict` | Unique email constraint caught |
-| **2.1** | `POST /customers/login` | Send unregistered email or incorrect password | `401 Unauthorized` | Generic message: `"Invalid email or password"` |
-| **2.2** | `POST /customers/login` | Send valid credentials | `200 OK` | Check **Cookies tab** in Postman: `token` exists with `HttpOnly` flag enabled |
-| **3.1** | `GET /customers/me` | Send request immediately after login (cookie attached) | `200 OK` | Returns customer profile (`_id`, `fullName`, `email`, `phone`) without password |
-| **3.2** | `GET /customers/me` | Delete cookie or test in fresh session without login | `401 Unauthorized` | Rejects unauthenticated request |
-| **4.1** | `POST /customers/logout` | Call logout endpoint | `200 OK` | Cookie is cleared |
-| **4.2** | `GET /customers/me` | Call profile endpoint again after logout | `401 Unauthorized` | Confirms user is logged out |
+### 🍳 Recipe 2: How to Add a New Route & Controller
+1. Write the controller function in `controllers/product.controller.js`.
+2. Wrap operations in `try { ... } catch (err) { res.status(500).json(...) }`.
+3. Export the function: `module.exports = { getAllProducts };`.
+4. In `routes/product.routes.js`, import the controller.
+5. Define the endpoint: `router.get("/", getAllProducts);`.
+6. Mount the route file in `index.js`: `app.use("/products", productRoutes);`.
 
----
-
-### Phase 3: Bonus Task Evaluation (+10 Marks)
-* **Endpoint**: `PATCH /customers/change-password`
-* **Test Case**:
-  1. Call while logged out $\to$ `401 Unauthorized`.
-  2. Call while logged in with wrong `oldPassword` $\to$ `401 Unauthorized`.
-  3. Call with valid `oldPassword` and valid `newPassword` $\to$ `200 OK`.
-  4. Try logging in with the old password $\to$ fails (`401`).
-  5. Try logging in with the new password $\to$ succeeds (`200`).
+### 🍳 Recipe 3: How to Protect Any Endpoint
+1. Import `authMiddleware` in your route file.
+2. Pass it as the second argument before the controller:
+   ```javascript
+   router.delete("/products/:id", authMiddleware, deleteProduct);
+   ```
+3. Inside `deleteProduct(req, res)`, access the verified user via `req.user`.
 
 ---
 
-## 3. TA Evaluation Rubric (100 Marks + 10 Bonus)
+# 7. TA Evaluation Rubric & Viva Preparation
+
+### 📊 Evaluation Rubric (100 Marks + 10 Bonus)
 
 | Category | Max Marks | Grading Criteria |
 | :--- | :---: | :--- |
@@ -108,33 +423,31 @@ Follow this exact testing order in Postman:
 | **Protected Route (`/me` & `/logout`)** | **20** | `authMiddleware` verifies token & attaches `req.user` (10), `/me` returns user without password (5), `/logout` clears cookie (5) |
 | **Code Structure (MVC)** | **10** | Clean folder structure, separation of routes/controllers/models/middlewares (10) |
 | **Error Handling** | **10** | Proper HTTP status codes (`400`, `401`, `409`, `500`), try/catch blocks (10) |
-| **TA Viva** | **10** | Clear answers to at least 2–3 conceptual questions (10) |
+| **TA Viva** | **10** | Clear answers to 2–3 conceptual questions (10) |
 | **Total** | **100** | |
 | **Bonus Challenge** | **+10** | `PATCH /customers/change-password` working with old password validation and new password hashing |
 
 ---
 
-## 4. TA Viva Questions & Expected Answers
-
-Ask **2 to 3 questions** from this list:
+### 🎤 Viva Questions & Expected Answers
 
 #### Q1: Why do we use bcrypt hashing instead of encrypting passwords?
-* **Expected Answer**: Encryption is two-way (can be decrypted with a key), meaning if the secret key is leaked, all passwords are compromised. Hashing is a one-way cryptographic algorithm (cannot be reversed). Even the database administrator cannot see the original password.
+* **Answer**: Encryption is two-way (can be decrypted with a key). If the key is leaked, all passwords are compromised. Hashing is a one-way mathematical function that cannot be reversed. Bcrypt also incorporates random salt rounds, defending against rainbow table attacks.
 
 #### Q2: What information should and shouldn't be stored in a JWT payload?
-* **Expected Answer**: Non-sensitive identifying information like `userId` (`_id`) and `email` should be stored. Passwords, secrets, or sensitive personal data should **never** be stored because JWT payloads are only Base64 encoded and can be decoded by anyone.
+* **Answer**: Non-sensitive identifying claims like `userId` (`_id`) and `email` should be stored. Passwords, secret keys, or sensitive personal data must **never** be stored because JWT payloads are only Base64-encoded and can be decoded by anyone.
 
-#### Q3: Why is the `HttpOnly` flag used when setting the cookie?
-* **Expected Answer**: Setting `httpOnly: true` prevents client-side scripts (JavaScript via `document.cookie`) from accessing the cookie. This protects the token from Cross-Site Scripting (XSS) attacks.
+#### Q3: Why is the `HttpOnly` flag used when setting cookies?
+* **Answer**: Setting `httpOnly: true` prevents client-side JavaScript (`document.cookie`) from reading or altering the cookie, effectively shielding the auth token against Cross-Site Scripting (XSS) attacks.
 
 #### Q4: Why shouldn't we return specific error messages like "Email not found" vs "Wrong password" during login?
-* **Expected Answer**: To prevent **user enumeration attacks**. If an attacker knows the email is valid, they can target that specific account with brute-force password attacks. A generic message like `"Invalid email or password"` keeps account existence ambiguous.
+* **Answer**: To prevent **user enumeration attacks**. If the API confirms an email exists, malicious actors can target that specific address with automated credential stuffing. A uniform message (`"Invalid email or password"`) keeps account existence ambiguous.
 
 #### Q5: What is the purpose of `next()` in the authentication middleware?
-* **Expected Answer**: `next()` passes control to the next middleware or controller function in the Express request-response cycle. If `next()` is not called, the request hangs indefinitely.
+* **Answer**: `next()` passes control to the next middleware or controller in the Express execution chain. If `next()` is omitted, the request hangs until client timeout.
 
 #### Q6: Why do we use `.select("-password")` when querying the user in the auth middleware?
-* **Expected Answer**: It explicitly excludes the hashed password field from the MongoDB query result, ensuring `req.user` does not hold sensitive password data in memory or accidentally return it in controller responses.
+* **Answer**: It excludes the hashed password field from the Mongoose document returned by MongoDB, ensuring sensitive credentials are never stored in `req.user` or accidentally leaked in API responses.
 
 #### Q7: What role does `cookie-parser` play in Express?
-* **Expected Answer**: Express cannot parse cookie headers by default. `cookie-parser` parses the `Cookie` header from incoming requests and populates `req.cookies` as a convenient JavaScript object.
+* **Answer**: Express cannot parse cookie header strings by default. `cookie-parser` parses incoming `Cookie` headers and populates `req.cookies` as an accessible JavaScript object.

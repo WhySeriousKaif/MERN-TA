@@ -1,11 +1,12 @@
 {
-  "name": "shopkart-backend",
+  "name": "shopkart-backend-lab3",
   "version": "1.0.0",
-  "description": "ShopKart Customer Authentication Service",
+  "description": "ShopKart Product Catalog & Discovery Service (Lab 03)",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "seed": "node seed.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",

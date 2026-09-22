@@ -5,12 +5,20 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
+const cors = require("cors");
 
 const customerRoutes = require("./routes/customer.routes");
 
 const app = express();
 
 // Middlewares
+// Enable CORS so the React frontend can make requests with credentials (cookies)
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+  })
+);
 app.use(express.json()); // to read JSON from req.body
 app.use(cookieParser()); // to read cookies from req.cookies
 
